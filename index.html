@@ -45,6 +45,7 @@
     justify-content: center;
     align-items: center;
     padding: 20px;
+    overflow-y: auto;
   }
 
   h1 {
@@ -106,6 +107,46 @@
     color: #f39523;
   }
 
+  #leaderboard-container {
+    margin-top: 25px;
+    width: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #1b1b1b;
+    border-radius: 8px;
+    padding: 15px 20px;
+    box-sizing: border-box;
+  }
+  #leaderboard-container h2 {
+    margin-bottom: 10px;
+    font-size: 1.3rem;
+    color: #3fbdf4;
+    text-align: center;
+  }
+  #leaderboard-list {
+    list-style: none;
+    max-height: 180px;
+  }
+  #leaderboard-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid #3fbdf440;
+    font-size: 1rem;
+    display: flex;
+    justify-content: space-between;
+    color: #ddd;
+  }
+  #leaderboard-list li:last-child {
+    border-bottom: none;
+  }
+  #leaderboard-list .name {
+    font-weight: 700;
+    color: #f39523;
+  }
+  #leaderboard-list .score {
+    font-weight: 600;
+    color: #3fbdf4;
+  }
+
   /* Mobile friendly instructions */
   #instructions {
     font-size: 0.9rem;
@@ -123,6 +164,13 @@
     <p>Stage: <span id="current-stage">1</span> / 7</p>
     <p>Use mouse or touch to move your paddle</p>
     <button id="start-btn">Start Game</button>
+
+    <div id="leaderboard-container" aria-label="Top 10 Records Leaderboard">
+      <h2>Leaderboard</h2>
+      <ul id="leaderboard-list">
+        <!-- leaderboard items inserted here -->
+      </ul>
+    </div>
   </div>
 
   <div id="scoreboard" style="display:none;">
@@ -158,6 +206,8 @@
   const restartBtn = document.getElementById('restart-btn');
   const gameOverTitle = document.getElementById('game-over-title');
 
+  const leaderboardList = document.getElementById('leaderboard-list');
+
   const canvasWidth = canvas.width;
   const canvasHeight = canvas.height;
 
@@ -183,11 +233,16 @@
   let isPlaying = false;
   let animationFrameId = null;
 
-  // Bot AI parameters: smaller increments for difficulty and speed
+  // Bot AI parameters: adjusted speed progression
   const maxStage = 7;
   const baseBallSpeed = 3.5;
   const maxBallSpeed = 7.5;
   const minScoreToWinStage = 3;
+  const baseBotSpeed = 1.0;  // slower start
+  const maxBotSpeed = 4.5;   // max bot speed at last stage
+
+  // Leaderboard max entries
+  const maxLeaderboardEntries = 10;
 
   // Touch and Mouse control variables
   let isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -272,9 +327,8 @@
   }
 
   function updateBotPosition() {
-    // Bot tries to follow the ball's x position but limited by max speed according to stage
-    // Smaller speed increments per stage so less punishing
-    const botSpeed = 1.8 + (stage - 1) * 0.5; 
+    // Bot speed scales linearly from baseBotSpeed to maxBotSpeed between stages 1 and maxStage
+    const botSpeed = baseBotSpeed + ((stage - 1) / (maxStage - 1)) * (maxBotSpeed - baseBotSpeed);
     if (botX + paddleWidth / 2 < ballX) {
       botX += botSpeed;
     } else if (botX + paddleWidth / 2 > ballX) {
@@ -397,6 +451,78 @@
     animationFrameId = requestAnimationFrame(gameLoop);
   }
 
+  // Leaderboard functions & storage
+  const leaderboardStorageKey = 'pingpong_leaderboard';
+
+  function loadLeaderboard() {
+    const data = localStorage.getItem(leaderboardStorageKey);
+    if (data) {
+      try {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch(e) {
+        // parsing fail, ignore
+      }
+    }
+    return [];
+  }
+
+  function saveLeaderboard(list) {
+    localStorage.setItem(leaderboardStorageKey, JSON.stringify(list));
+  }
+
+  function addLeaderboardRecord(name, stage, score) {
+    const list = loadLeaderboard();
+    // push new record
+    list.push({ name: sanitizeName(name), stage, score });
+    // sort by stage desc, then score desc
+    list.sort((a,b) => {
+      if(b.stage !== a.stage) return b.stage - a.stage;
+      return b.score - a.score;
+    });
+    // keep only max entries
+    if(list.length > maxLeaderboardEntries) list.length = maxLeaderboardEntries;
+    saveLeaderboard(list);
+    updateLeaderboardUI(list);
+  }
+
+  function sanitizeName(name) {
+    if(!name) return 'Anonymous';
+    return String(name).trim().substring(0,20).replace(/[<>]/g, '');
+  }
+
+  function updateLeaderboardUI(list) {
+    leaderboardList.innerHTML = '';
+    if(list.length === 0) {
+      const li = document.createElement('li');
+      li.textContent = 'No records yet.';
+      leaderboardList.appendChild(li);
+      return;
+    }
+    list.forEach(entry => {
+      const li = document.createElement('li');
+      const nameSpan = document.createElement('span');
+      const scoreSpan = document.createElement('span');
+      nameSpan.className = 'name';
+      scoreSpan.className = 'score';
+      nameSpan.textContent = entry.name;
+      scoreSpan.textContent = `Stage: ${entry.stage}`;
+      li.appendChild(nameSpan);
+      li.appendChild(scoreSpan);
+      leaderboardList.appendChild(li);
+    });
+  }
+
+  function promptAndSaveRecord() {
+    let playerName = prompt('You won this stage! Enter your name for the leaderboard:', '');
+    if(playerName === null) {
+      playerName = 'Anonymous';
+    }
+    addLeaderboardRecord(playerName, stage, playerScore);
+  }
+
   function startGame() {
     playerScore = 0;
     stage = 1;
@@ -436,12 +562,15 @@
     if(playerScore >= minScoreToWinStage) {
       // Player wins stage
       gameOverTitle.textContent = `Stage ${stage} Complete!`;
-      // Show next stage button only if there are more stages
       if(stage < maxStage) {
         nextStageBtn.style.display = 'inline-block';
       } else {
         nextStageBtn.style.display = 'none';
       }
+      // Prompt and save the record
+      setTimeout(() => {
+        promptAndSaveRecord();
+      }, 150);
     } else {
       // Player lost the stage
       gameOverTitle.textContent = `Stage ${stage} Failed!`;
@@ -496,9 +625,10 @@
   nextStageBtn.addEventListener('click', nextStage);
   restartBtn.addEventListener('click', restartGame);
 
-  // Initialize display values
+  // Initialize display values and leaderboard UI
   updateStageDisplay();
   updateScoreDisplay();
+  updateLeaderboardUI(loadLeaderboard());
 
   // On orientation change, re-clamp player position just in case
   window.addEventListener('resize', () => {
