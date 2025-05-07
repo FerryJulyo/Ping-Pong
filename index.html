@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Ping Pong Game</title>
+<style>
+  /* Reset and base */
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  html, body {
+    height: 100%;
+    background: linear-gradient(135deg, #2980b9, #6dd5fa);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  #game-container {
+    width: 350px;
+    height: 600px;
+    background: #101010;
+    border-radius: 10px;
+    box-shadow: 0 0 20px #3fbdf4;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  #start-screen, #game-over-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+
+  h1 {
+    font-weight: 900;
+    margin-bottom: 10px;
+    font-size: 2.4rem;
+    text-shadow: 0 0 10px #49c1e6;
+  }
+
+  button {
+    background: #3fbdf4;
+    border: none;
+    padding: 15px 35px;
+    border-radius: 30px;
+    font-size: 1.2rem;
+    color: #101010;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 0 15px #3fbdf4;
+    transition: background-color 0.3s ease;
+    margin-top: 20px;
+  }
+  button:hover {
+    background: #22a0d2;
+    box-shadow: 0 0 25px #22a0d2;
+  }
+  button:active {
+    transform: scale(0.95);
+  }
+
+  canvas {
+    background: radial-gradient(circle at center, #121212 90%, #222 100%);
+    border-radius: 0 0 10px 10px;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  #scoreboard {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #1b1b1b;
+    font-weight: 700;
+    letter-spacing: 1px;
+    font-size: 1.1rem;
+    border-radius: 10px 10px 0 0;
+  }
+
+  #stage-indicator {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: #3fbdf4;
+  }
+
+  #score-indicator {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: #f39523;
+  }
+
+  /* Mobile friendly instructions */
+  #instructions {
+    font-size: 0.9rem;
+    padding: 8px 15px;
+    color: #ddd;
+    text-align: center;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="start-screen">
+    <h1>Ping Pong</h1>
+    <p>Stage: <span id="current-stage">1</span> / 7</p>
+    <p>Use mouse or touch to move your paddle</p>
+    <button id="start-btn">Start Game</button>
+  </div>
+
+  <div id="scoreboard" style="display:none;">
+    <div id="stage-indicator">Stage: 1</div>
+    <div id="score-indicator">Score: 0</div>
+  </div>
+  <canvas id="game-canvas" width="350" height="550" style="display:none;"></canvas>
+
+  <div id="game-over-screen" style="display:none;">
+    <h1 id="game-over-title">Stage <span id="final-stage">1</span> Complete!</h1>
+    <p>Your score: <span id="final-score">0</span></p>
+    <button id="next-stage-btn">Next Stage</button>
+    <button id="restart-btn" style="margin-top:10px;">Restart Game</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+
+  const startScreen = document.getElementById('start-screen');
+  const startBtn = document.getElementById('start-btn');
+  const scoreboard = document.getElementById('scoreboard');
+  const stageIndicator = document.getElementById('stage-indicator');
+  const scoreIndicator = document.getElementById('score-indicator');
+  const currentStageDisplay = document.getElementById('current-stage');
+
+  const gameOverScreen = document.getElementById('game-over-screen');
+  const finalStageDisplay = document.getElementById('final-stage');
+  const finalScoreDisplay = document.getElementById('final-score');
+  const nextStageBtn = document.getElementById('next-stage-btn');
+  const restartBtn = document.getElementById('restart-btn');
+  const gameOverTitle = document.getElementById('game-over-title');
+
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
+
+  // Gameplay constants
+  const paddleWidth = 75;
+  const paddleHeight = 12;
+  const paddleMarginBottom = 20;
+  const ballRadius = 8;
+
+  // Game variables
+  let playerX = (canvasWidth - paddleWidth) / 2;
+  let playerY = canvasHeight - paddleMarginBottom - paddleHeight;
+
+  let botX = (canvasWidth - paddleWidth) / 2;
+  let botY = paddleMarginBottom;
+
+  let ballX, ballY;
+  let ballSpeedX, ballSpeedY;
+
+  let playerScore = 0;
+  let stage = 1;
+
+  let isPlaying = false;
+  let animationFrameId = null;
+
+  // Bot AI parameters: smaller increments for difficulty and speed
+  const maxStage = 7;
+  const baseBallSpeed = 3.5;
+  const maxBallSpeed = 7.5;
+  const minScoreToWinStage = 3;
+
+  // Touch and Mouse control variables
+  let isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  // Utility function to clamp values
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function resetBall() {
+    ballX = canvasWidth / 2;
+    ballY = canvasHeight / 2;
+    // Smaller speed increment per stage
+    const speed = Math.min(baseBallSpeed + (stage - 1) * 0.6, maxBallSpeed);
+    // Random initial direction towards player
+    ballSpeedX = (Math.random() < 0.5 ? -1 : 1) * speed * 0.6;
+    ballSpeedY = (Math.random() < 0.5 ? -1 : 1) * speed * 0.8;
+  }
+
+  function drawRoundedRect(x, y, w, h, r, fillStyle) {
+    ctx.fillStyle = fillStyle;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPaddle(x, y, width, height, color) {
+    drawRoundedRect(x, y, width, height, 6, color);
+  }
+
+  function drawBall(x, y, radius, color) {
+    const gradient = ctx.createRadialGradient(x, y, radius * 0.2, x, y, radius);
+    gradient.addColorStop(0, '#67e9ff');
+    gradient.addColorStop(1, color);
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawNet() {
+    const netWidth = 4;
+    const netHeight = 15;
+    const netX = (canvasWidth - netWidth) / 2;
+    const netColor = 'rgba(63, 189, 244, 0.7)';
+    for(let y=0; y<canvasHeight; y += netHeight * 2) {
+      ctx.fillStyle = netColor;
+      ctx.fillRect(netX, y, netWidth, netHeight);
+    }
+  }
+
+  function drawBackground() {
+    // Subtle background gradient
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+    bgGradient.addColorStop(0, '#121212');
+    bgGradient.addColorStop(1, '#222');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  }
+
+  function draw() {
+    drawBackground();
+    drawNet();
+
+    // Draw bot paddle with cool highlight
+    drawPaddle(botX, botY, paddleWidth, paddleHeight, '#3fbdf4');
+
+    // Draw player paddle
+    drawPaddle(playerX, playerY, paddleWidth, paddleHeight, '#f39523');
+
+    // Draw ball
+    drawBall(ballX, ballY, ballRadius, '#67e9ff');
+  }
+
+  function updateBotPosition() {
+    // Bot tries to follow the ball's x position but limited by max speed according to stage
+    // Smaller speed increments per stage so less punishing
+    const botSpeed = 1.8 + (stage - 1) * 0.5; 
+    if (botX + paddleWidth / 2 < ballX) {
+      botX += botSpeed;
+    } else if (botX + paddleWidth / 2 > ballX) {
+      botX -= botSpeed;
+    }
+    // Clamp position inside canvas
+    botX = clamp(botX, 0, canvasWidth - paddleWidth);
+  }
+
+  function updateBall() {
+    ballX += ballSpeedX;
+    ballY += ballSpeedY;
+
+    // Bounce off left/right walls
+    if(ballX + ballRadius > canvasWidth) {
+      ballX = canvasWidth - ballRadius;
+      ballSpeedX = -ballSpeedX;
+      playBounceSound();
+    } else if(ballX - ballRadius < 0) {
+      ballX = ballRadius;
+      ballSpeedX = -ballSpeedX;
+      playBounceSound();
+    }
+
+    // Bounce off bot paddle
+    if(ballY - ballRadius <= botY + paddleHeight) {
+      if(ballX + ballRadius >= botX && ballX - ballRadius <= botX + paddleWidth) {
+        ballY = botY + paddleHeight + ballRadius;
+        ballSpeedY = -ballSpeedY;
+        // Add paddle hit effect: change ballSpeedX slightly based on hit position
+        const hitPos = (ballX - (botX + paddleWidth / 2)) / (paddleWidth / 2);
+        ballSpeedX += hitPos * 1.2;
+        playBounceSound();
+      } else if(ballY - ballRadius <= 0) {
+        // Missed by bot, player scores
+        playerScore++;
+        updateScoreDisplay();
+        resetBall();
+      }
+    }
+
+    // Bounce off player paddle
+    if(ballY + ballRadius >= playerY) {
+      if(ballX + ballRadius >= playerX && ballX - ballRadius <= playerX + paddleWidth) {
+        ballY = playerY - ballRadius;
+        ballSpeedY = -ballSpeedY;
+        const hitPos = (ballX - (playerX + paddleWidth / 2)) / (paddleWidth / 2);
+        ballSpeedX += hitPos * 1.5;
+        playBounceSound();
+      } else if(ballY + ballRadius >= canvasHeight) {
+        // Missed by player, check if stage is won and end stage
+        endStage();
+      }
+    }
+
+    // Clamp ball speed so it doesn't get out of control
+    const maxSpeedX = 7.5;
+    ballSpeedX = clamp(ballSpeedX, -maxSpeedX, maxSpeedX);
+  }
+
+  function updateScoreDisplay() {
+    scoreIndicator.textContent = `Score: ${playerScore}`;
+  }
+
+  function updateStageDisplay() {
+    stageIndicator.textContent = `Stage: ${stage}`;
+    currentStageDisplay.textContent = stage;
+  }
+
+  // Touch and mouse control handlers for player paddle
+  function setPlayerPositionFromClientX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    const relativeX = clientX - rect.left;
+    playerX = clamp(relativeX - paddleWidth / 2, 0, canvasWidth - paddleWidth);
+  }
+
+  function onMouseMove(event) {
+    if (isPlaying) {
+      setPlayerPositionFromClientX(event.clientX);
+    }
+  }
+
+  function onTouchMove(event) {
+    if (isPlaying) {
+      const touch = event.touches[0];
+      setPlayerPositionFromClientX(touch.clientX);
+      event.preventDefault();
+    }
+  }
+
+  // Sound effect
+  function playBounceSound() {
+    if(!window.muteSound) {
+      // Simple beep sound with Web Audio API
+      try {
+        const ctxSound = new AudioContext();
+        const oscillator = ctxSound.createOscillator();
+        const gainNode = ctxSound.createGain();
+
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(1000, ctxSound.currentTime);
+
+        gainNode.gain.setValueAtTime(0.15, ctxSound.currentTime);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctxSound.destination);
+
+        oscillator.start();
+        oscillator.stop(ctxSound.currentTime + 0.05);
+      } catch(e) {
+        // AudioContext not supported or error, silently ignore
+      }
+    }
+  }
+
+  function gameLoop() {
+    updateBall();
+    updateBotPosition();
+    draw();
+    animationFrameId = requestAnimationFrame(gameLoop);
+  }
+
+  function startGame() {
+    playerScore = 0;
+    stage = 1;
+    updateScoreDisplay();
+    updateStageDisplay();
+    resetBall();
+
+    startScreen.style.display = 'none';
+    gameOverScreen.style.display = 'none';
+    scoreboard.style.display = 'flex';
+    canvas.style.display = 'block';
+
+    isPlaying = true;
+
+    // Add event listeners for controlling paddle
+    if (isTouchDevice) {
+      canvas.addEventListener('touchmove', onTouchMove, {passive: false});
+    } else {
+      window.addEventListener('mousemove', onMouseMove);
+    }
+
+    gameLoop();
+  }
+
+  function endStage() {
+    isPlaying = false;
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+
+    scoreboard.style.display = 'none';
+    canvas.style.display = 'none';
+
+    finalStageDisplay.textContent = stage;
+    finalScoreDisplay.textContent = playerScore;
+
+    // Determine if player won the stage
+    if(playerScore >= minScoreToWinStage) {
+      // Player wins stage
+      gameOverTitle.textContent = `Stage ${stage} Complete!`;
+      // Show next stage button only if there are more stages
+      if(stage < maxStage) {
+        nextStageBtn.style.display = 'inline-block';
+      } else {
+        nextStageBtn.style.display = 'none';
+      }
+    } else {
+      // Player lost the stage
+      gameOverTitle.textContent = `Stage ${stage} Failed!`;
+      nextStageBtn.style.display = 'none';
+    }
+    gameOverScreen.style.display = 'flex';
+
+    // Remove control event listeners
+    if (isTouchDevice) {
+      canvas.removeEventListener('touchmove', onTouchMove);
+    } else {
+      window.removeEventListener('mousemove', onMouseMove);
+    }
+  }
+
+  function nextStage() {
+    if(stage < maxStage) {
+      stage++;
+      playerScore = 0;
+      updateStageDisplay();
+      updateScoreDisplay();
+      resetBall();
+
+      gameOverScreen.style.display = 'none';
+      scoreboard.style.display = 'flex';
+      canvas.style.display = 'block';
+
+      isPlaying = true;
+
+      if (isTouchDevice) {
+        canvas.addEventListener('touchmove', onTouchMove, {passive: false});
+      } else {
+        window.addEventListener('mousemove', onMouseMove);
+      }
+
+      gameLoop();
+    }
+  }
+
+  function restartGame() {
+    stage = 1;
+    playerScore = 0;
+    updateStageDisplay();
+    updateScoreDisplay();
+    resetBall();
+
+    gameOverScreen.style.display = 'none';
+    startScreen.style.display = 'flex';
+  }
+
+  startBtn.addEventListener('click', startGame);
+  nextStageBtn.addEventListener('click', nextStage);
+  restartBtn.addEventListener('click', restartGame);
+
+  // Initialize display values
+  updateStageDisplay();
+  updateScoreDisplay();
+
+  // On orientation change, re-clamp player position just in case
+  window.addEventListener('resize', () => {
+    playerX = clamp(playerX, 0, canvasWidth - paddleWidth);
+    botX = clamp(botX, 0, canvasWidth - paddleWidth);
+  });
+})();
+</script>
+</body>
+</html>
+</content>
+</create_file>
